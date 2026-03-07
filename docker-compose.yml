@@ -1,0 +1,65 @@
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: ctf-postgres
+    environment:
+      POSTGRES_USER: ctf_user
+      POSTGRES_PASSWORD: ctf_password
+      POSTGRES_DB: ctf_lab
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ctf_user -d ctf_lab"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build: .
+    container_name: ctf-api
+    ports:
+      - "3000:3000"
+    environment:
+      DB_USER: ctf_user
+      DB_HOST: postgres
+      DB_NAME: ctf_lab
+      DB_PASSWORD: ctf_password
+      DB_PORT: 5432
+      PORT: 3000
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - .:/app
+      - /app/node_modules
+      - ./logs/express:/app/logs
+    command: sh -c "sleep 5 && node init-db.js && npm start"
+
+  filebeat:
+    build: filebeat/
+    user: root # Nécessaire pour lire les fichiers logs avec les bonnes permissions
+    volumes:
+      - ./filebeat/filebeat.yml:/usr/share/filebeat/filebeat.yml
+      # Filebeat lit le MÊME dossier que l'app Express
+      - ./logs/express:/var/log/app-logs:ro
+      # Optionnel : permet à Filebeat de voir les logs Docker eux-mêmes
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    configs:
+      - filebeat_config
+    networks:
+      - shared_net
+    
+configs:
+  filebeat_config:
+    file: filebeat/filebeat.yml
+
+
+volumes:
+  postgres_data:
+
+networks:
+  shared_net:
+    external: true
